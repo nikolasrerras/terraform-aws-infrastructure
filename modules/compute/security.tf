@@ -1,7 +1,7 @@
 resource "aws_security_group" "web" {
   name        = "terraform-lab-web-sg"
   description = "Security group for Nginx web server"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = var.vpc_id
 
   tags = {
     Name    = "terraform-lab-web-sg"

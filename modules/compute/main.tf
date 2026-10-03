@@ -6,7 +6,7 @@ resource "aws_instance" "web" {
   ami           = data.aws_ssm_parameter.al2023_ami.value
   instance_type = var.instance_type
 
-  subnet_id                   = aws_subnet.public.id
+  subnet_id                   = var.public_subnet_id
   associate_public_ip_address = true
 
   vpc_security_group_ids = [
@@ -24,7 +24,6 @@ resource "aws_instance" "web" {
   }
 
   depends_on = [
-    aws_route_table_association.public,
     aws_vpc_security_group_ingress_rule.http,
     aws_vpc_security_group_egress_rule.all_ipv4
   ]

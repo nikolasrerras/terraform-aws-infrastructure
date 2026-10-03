@@ -1,54 +1,54 @@
 output "vpc_id" {
   description = "ID of the created VPC"
-  value       = aws_vpc.main.id
+  value       = module.networking.vpc_id
 }
 
 output "vpc_cidr" {
   description = "CIDR block of the VPC"
-  value       = aws_vpc.main.cidr_block
+  value       = module.networking.vpc_cidr
 }
 
 output "public_subnet_id" {
   description = "ID of the public subnet"
-  value       = aws_subnet.public.id
+  value       = module.networking.public_subnet_id
 }
 
 output "private_subnet_id" {
   description = "ID of the private subnet"
-  value       = aws_subnet.private.id
+  value       = module.networking.private_subnet_id
 }
 
 output "internet_gateway_id" {
   description = "ID of the Internet Gateway"
-  value       = aws_internet_gateway.main.id
+  value       = module.networking.internet_gateway_id
 }
 
 output "public_route_table_id" {
   description = "ID of the public route table"
-  value       = aws_route_table.public.id
+  value       = module.networking.public_route_table_id
 }
 
 output "private_route_table_id" {
   description = "ID of the private route table"
-  value       = aws_route_table.private.id
+  value       = module.networking.private_route_table_id
 }
 
 output "web_security_group_id" {
   description = "Security group ID for the web server"
-  value       = aws_security_group.web.id
+  value       = module.compute.web_security_group_id
 }
 
 output "instance_id" {
   description = "EC2 instance ID"
-  value       = aws_instance.web.id
+  value       = module.compute.instance_id
 }
 
 output "public_ip" {
   description = "Public IPv4 address"
-  value       = aws_instance.web.public_ip
+  value       = module.compute.public_ip
 }
 
 output "website_url" {
   description = "Nginx website URL"
-  value       = "http://${aws_instance.web.public_ip}"
+  value       = module.compute.website_url
 }
