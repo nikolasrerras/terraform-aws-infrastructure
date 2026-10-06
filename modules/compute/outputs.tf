@@ -17,3 +17,13 @@ output "website_url" {
   description = "Nginx website URL"
   value       = "http://${aws_instance.web.public_ip}"
 }
+
+output "iam_role_name" {
+  description = "IAM role attached to the EC2 instance"
+  value       = aws_iam_role.ec2_ssm.name
+}
+
+output "instance_profile_name" {
+  description = "IAM instance profile attached to the EC2 instance"
+  value       = aws_iam_instance_profile.ec2.name
+}

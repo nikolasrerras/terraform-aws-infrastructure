@@ -3,8 +3,9 @@ data "aws_ssm_parameter" "al2023_ami" {
 }
 
 resource "aws_instance" "web" {
-  ami           = data.aws_ssm_parameter.al2023_ami.value
-  instance_type = var.instance_type
+  ami                  = data.aws_ssm_parameter.al2023_ami.value
+  instance_type        = var.instance_type
+  iam_instance_profile = aws_iam_instance_profile.ec2.name
 
   subnet_id                   = var.public_subnet_id
   associate_public_ip_address = true

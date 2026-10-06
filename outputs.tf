@@ -52,3 +52,13 @@ output "website_url" {
   description = "Nginx website URL"
   value       = module.compute.website_url
 }
+
+output "iam_role_name" {
+  description = "IAM role attached to the EC2 instance"
+  value       = module.compute.iam_role_name
+}
+
+output "instance_profile_name" {
+  description = "IAM instance profile attached to the EC2 instance"
+  value       = module.compute.instance_profile_name
+}
