@@ -1,19 +1,10 @@
 # AWS Infrastructure Provisioning with Terraform
 
-A modular Infrastructure as Code (IaC) project that provisions a small AWS environment using Terraform.
+A modular Infrastructure as Code project that provisions a small AWS environment using Terraform.
 
-The infrastructure includes a custom VPC, public and private subnets, internet routing, security groups, and an Amazon EC2 instance running Nginx.
+The project creates a custom VPC, public and private subnets, internet routing, an EC2 instance running Nginx, Security Groups, and IAM integration with AWS Systems Manager.
 
-All resources are provisioned automatically through Terraform without manual configuration in the AWS Console.
-
-## Technologies
-
-- AWS (VPC, EC2, IAM, Security Groups)
-- Terraform
-- Amazon Linux 2023
-- Bash
-- Nginx
-- Git
+The entire infrastructure can be created and destroyed reproducibly using Terraform without manual resource creation in the AWS Console.
 
 ## Architecture
 
@@ -21,26 +12,73 @@ All resources are provisioned automatically through Terraform without manual con
 flowchart TB
     Internet((Internet))
     IGW[Internet Gateway]
+    SSM[AWS Systems Manager]
+    IAM["IAM Role<br/>AmazonSSMManagedInstanceCore"]
 
-    subgraph VPC["AWS VPC - 10.0.0.0/16"]
+    subgraph VPC["VPC - 10.0.0.0/16"]
+
         subgraph Public["Public Subnet - 10.0.1.0/24"]
             EC2["EC2 t3.micro<br/>Amazon Linux 2023<br/>Nginx"]
         end
 
         subgraph Private["Private Subnet - 10.0.2.0/24"]
-            Empty["Reserved for private workloads"]
+            Reserved["Reserved for private workloads"]
         end
+
+        PublicRT["Public Route Table<br/>0.0.0.0/0 → IGW"]
+        PrivateRT["Private Route Table<br/>Local routing only"]
     end
 
     Internet <--> IGW
-    IGW <--> EC2
+    IGW --> PublicRT
+    PublicRT --> Public
+    PrivateRT --> Private
+
+    IAM --> EC2
+    EC2 <--> SSM
 ```
 
-The public subnet has a default route to the Internet Gateway.
+The EC2 instance is deployed in the public subnet and receives a public IPv4 address.
 
-The private subnet has no direct internet route or NAT Gateway.
+The private subnet has no direct Internet route and no NAT Gateway.
 
-Inbound access to the EC2 instance is restricted to HTTP (TCP port 80). SSH access is not enabled.
+The EC2 instance uses an IAM role to register with AWS Systems Manager, allowing remote management without exposing SSH port 22.
+
+## Demo
+
+The EC2 instance automatically installs and starts Nginx through a user-data script.
+
+The deployed page returns:
+
+```text
+AWS Terraform Demo
+
+Infrastructure provisioned with Terraform.
+Running on Amazon EC2 with Nginx.
+```
+
+The deployment was verified with an HTTP `200 OK` response from Nginx.
+
+![Nginx running on AWS EC2](docs/nginx-demo.png)
+
+
+## Technologies
+
+- Terraform
+- AWS
+  - VPC
+  - EC2
+  - IAM
+  - Systems Manager
+  - Systems Manager Parameter Store
+  - Subnets
+  - Internet Gateway
+  - Route Tables
+  - Security Groups
+- Amazon Linux 2023
+- Nginx
+- Bash
+- Git
 
 ## Project Structure
 
@@ -49,187 +87,355 @@ terraform-aws-infrastructure/
 ├── .gitignore
 ├── .terraform.lock.hcl
 ├── main.tf
+├── outputs.tf
 ├── providers.tf
 ├── variables.tf
-├── outputs.tf
+│
 └── modules/
     ├── networking/
     │   ├── main.tf
+    │   ├── outputs.tf
     │   ├── routes.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
+    │   └── variables.tf
+    │
     └── compute/
+        ├── iam.tf
         ├── main.tf
-        ├── security.tf
-        ├── variables.tf
         ├── outputs.tf
-        └── user-data.sh
+        ├── security.tf
+        ├── user-data.sh
+        └── variables.tf
 ```
 
 ## Terraform Modules
 
 ### Networking Module
 
-Provisions the foundational AWS networking resources:
+The `networking` module provisions the AWS networking layer:
 
 - VPC with DNS support
-- Public and private subnets across two Availability Zones
+- Public subnet
+- Private subnet
 - Internet Gateway
-- Public and private route tables
+- Public route table
+- Private route table
 - Route table associations
+
+The public and private subnets are placed in separate Availability Zones.
 
 ### Compute Module
 
-Provisions the application infrastructure:
+The `compute` module provisions:
 
-- EC2 instance running Amazon Linux 2023
-- Security Group with HTTP ingress
+- Amazon EC2 instance
+- Security Group
+- HTTP ingress rule
 - Outbound IPv4 access
-- Automated Nginx installation using EC2 user data
+- IAM role
+- IAM instance profile
+- Systems Manager permissions
+- Amazon Linux 2023 AMI lookup
+- Nginx installation through EC2 user data
 
-Both modules expose outputs that can be referenced by the root Terraform configuration.
+The modules communicate through Terraform inputs and outputs rather than directly referencing resources inside each other.
 
-## Prerequisites
+## Networking
 
-Before deployment, ensure you have:
+The VPC uses the following address space:
 
-- An AWS account with appropriate permissions
-- Terraform installed
-- AWS CLI installed
-- Valid AWS authentication credentials
+```text
+VPC
+10.0.0.0/16
 
-The example configuration uses the AWS Stockholm region (`eu-north-1`).
+├── Public Subnet
+│   10.0.1.0/24
+│
+└── Private Subnet
+    10.0.2.0/24
+```
 
-Configure AWS authentication:
+The public subnet uses the route:
+
+```text
+0.0.0.0/0 → Internet Gateway
+```
+
+The private subnet only has local VPC routing.
+
+A NAT Gateway is intentionally not created in order to keep the architecture small and avoid unnecessary AWS costs.
+
+## Security
+
+The web server Security Group allows:
+
+```text
+Inbound:
+TCP 80    0.0.0.0/0
+
+Outbound:
+All IPv4  0.0.0.0/0
+```
+
+SSH access on TCP port 22 is intentionally not enabled.
+
+The EC2 instance also requires IMDSv2 for access to instance metadata:
+
+```hcl
+metadata_options {
+  http_tokens = "required"
+}
+```
+
+This project uses HTTP only for demonstration purposes. A production deployment should use HTTPS and stricter network controls where appropriate.
+
+## IAM and Systems Manager
+
+The EC2 instance receives AWS permissions through an IAM role instead of hardcoded access keys.
+
+The IAM architecture is:
+
+```text
+EC2
+ │
+ ▼
+IAM Instance Profile
+ │
+ ▼
+IAM Role
+ │
+ ▼
+AmazonSSMManagedInstanceCore
+ │
+ ▼
+AWS Systems Manager
+```
+
+The role trust policy allows the EC2 service to assume the role.
+
+The AWS-managed `AmazonSSMManagedInstanceCore` policy provides the permissions required for the Systems Manager agent to communicate with AWS Systems Manager.
+
+The configuration was verified by confirming that the EC2 instance registered successfully as an online Systems Manager managed node.
+
+Example result:
+
+```json
+{
+  "PingStatus": "Online",
+  "Platform": "Amazon Linux"
+}
+```
+
+This provides a safer management path than exposing SSH directly to the Internet.
+
+## Dynamic AMI Discovery
+
+The Amazon Linux 2023 AMI ID is not hardcoded.
+
+Terraform retrieves the current AMI through AWS Systems Manager Parameter Store:
+
+```text
+/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+```
+
+This avoids manually updating AMI IDs when AWS publishes newer Amazon Linux images.
+
+## Automated Server Provisioning
+
+The EC2 instance uses a Bash `user_data` script during its initial boot.
+
+The script:
+
+1. Installs Nginx
+2. Creates the demo HTML page
+3. Enables the Nginx service
+4. Starts the web server
+
+No manual SSH configuration is required to deploy the application.
+
+## Requirements
+
+Before deploying the infrastructure, ensure that you have:
+
+- Terraform
+- AWS CLI
+- An AWS account
+- AWS credentials with sufficient permissions
+
+The default region used by this project is:
+
+```text
+eu-north-1
+```
+
+## AWS Authentication
+
+AWS credentials are not stored in this repository.
+
+Authenticate using an AWS CLI profile:
 
 ```bash
 aws login --profile terraform-lab
 ```
 
-Select the profile for Terraform:
+Expose the profile to Terraform:
 
 ```bash
 export AWS_PROFILE=terraform-lab
 ```
 
-For fish shell:
+Verify that authentication is working:
 
-```fish
-set -gx AWS_PROFILE terraform-lab
+```bash
+aws sts get-caller-identity
 ```
+
+Terraform will automatically use the credentials associated with the selected AWS CLI profile.
 
 ## Deployment
 
-### 1. Clone the repository
+Clone the repository:
 
 ```bash
 git clone <repository-url>
 cd terraform-aws-infrastructure
 ```
 
-Replace `<repository-url>` with the actual GitHub repository URL.
-
-### 2. Initialize Terraform
+Initialize Terraform:
 
 ```bash
 terraform init
 ```
 
-### 3. Format and validate
+Format the configuration:
 
 ```bash
-terraform fmt -check -recursive
+terraform fmt -recursive
+```
+
+Validate it:
+
+```bash
 terraform validate
 ```
 
-### 4. Review infrastructure changes
+Review the infrastructure changes:
 
 ```bash
 terraform plan
 ```
 
-### 5. Deploy
+Create the infrastructure:
 
 ```bash
 terraform apply
 ```
 
-Review the execution plan and confirm the deployment.
-
-### 6. Retrieve outputs
+After deployment, retrieve the outputs:
 
 ```bash
 terraform output
 ```
 
-To retrieve the Nginx URL:
+Retrieve the web server URL directly:
 
 ```bash
 terraform output -raw website_url
 ```
 
-The Nginx web server is automatically installed during the initial EC2 boot process.
+The EC2 instance may require a short amount of time after creation for the user-data script to install and start Nginx.
 
-It may take a few minutes for the website to become available.
+## Verification
 
-## Security Considerations
+Verify the Nginx deployment:
 
-The project includes several basic security practices:
+```bash
+curl "$(terraform output -raw website_url)"
+```
 
-- No inbound SSH access
-- HTTP access restricted to TCP port 80
-- IMDSv2 required for EC2 metadata access
-- Temporary AWS CLI credentials
-- Terraform state files excluded from version control
-- No hardcoded AWS access keys
-- Standard EC2 CPU credit mode to avoid Unlimited-mode CPU credit charges
+Verify that the EC2 instance is registered with AWS Systems Manager:
 
-HTTP is used only for this demonstration. Production deployments should use HTTPS and a suitable TLS termination setup.
+```bash
+INSTANCE_ID=$(terraform output -raw instance_id)
 
-## Cost Considerations
+aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+  --region eu-north-1
+```
 
-This project creates AWS resources that may consume credits or incur charges, including:
+A successfully registered instance should report:
 
-- EC2 compute
-- EBS storage
-- Public IPv4 addresses
-- Data transfer
+```text
+PingStatus: Online
+```
 
-Review the applicable AWS pricing and Free Tier eligibility before deployment.
+## Destroying the Infrastructure
 
-To delete the infrastructure:
+All resources created by Terraform can be removed with:
 
 ```bash
 terraform destroy
 ```
 
-Confirm the destruction plan before proceeding.
+Always review the destruction plan before confirming.
 
-Verify that no unexpected billable resources remain in your AWS account.
+The infrastructure lifecycle is:
 
-## Key Concepts Demonstrated
+```text
+Terraform configuration
+        │
+        ▼
+terraform plan
+        │
+        ▼
+terraform apply
+        │
+        ▼
+AWS Infrastructure
+        │
+        ▼
+terraform destroy
+```
 
-- Infrastructure as Code
-- Declarative infrastructure management
-- Modular Terraform architecture
-- AWS VPC networking
-- Infrastructure dependencies
-- Parameterized configurations
-- Terraform state management
-- Automated server provisioning
-- Infrastructure lifecycle management
+## Terraform State
 
-## Future Improvements
+Terraform uses state to track the infrastructure it manages.
 
-Potential extensions include:
+Local state files are excluded from Git:
 
-- Remote Terraform state storage
-- CI validation using GitHub Actions
-- HTTPS support
-- Additional monitoring and observability
+```text
+*.tfstate
+*.tfstate.*
+```
 
-These extensions are outside the current project scope.
+The Terraform working directory is also excluded:
 
-## Author
+```text
+.terraform/
+```
 
-Nikolas Rerras
+The provider dependency lock file is committed:
+
+```text
+.terraform.lock.hcl
+```
+
+This keeps provider versions reproducible without publishing Terraform state.
+
+## Cost Considerations
+
+This project may create AWS resources that consume credits or incur charges, including:
+
+- EC2 compute
+- EBS storage
+- Public IPv4 address usage
+- Data transfer
+
+A NAT Gateway, Load Balancer, RDS database, and Auto Scaling Group are intentionally not included.
+
+The goal is to demonstrate the core AWS and Terraform concepts without making the environment unnecessarily expensive.
+
+Resources should be destroyed when the lab is not in use:
+
+```bash
+terraform destroy
+```
